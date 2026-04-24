@@ -32,12 +32,12 @@ public class Door : MonoBehaviour
     // 物理パラメータを保持する構造体(CalculateForceの引数としてまとめるため)
     public struct PhysicsParams
     {
-        public float Vd;   // 目標速度 [m/s]
-        public float Td;   // 加速時間 [s]
+        public float Vh;   // 目標速度 [m/s]
+        public float Th;   // 加速時間 [s]
         public float Vl;   // 目標速度 [m/s](完全に開閉する前の目標減速速度)
         public float Tl;   // 減速時間 [s](完全に開閉する前の減速時間)
-        public float MuP;  // 静摩擦係数 (μ')
-        public float Mu;   // 動摩擦係数 (μ)
+        public float Mu;  // 静摩擦係数 (μ)
+        public float MuP;   // 動摩擦係数 (μ')
         public float m;    // 質量 [m]
         public float g;    // 重力加速度 [g]
         public float Xa;   // ダンパa境界位置 [Xa]
@@ -45,6 +45,13 @@ public class Door : MonoBehaviour
         public float c;    // ダンパ減衰係数 [c]
     }
     private PhysicsParams p; // 物理パラメータのインスタンス
+    enum DoorState
+    {
+        Opened,
+        Closed,
+        Moving
+    }
+    private DoorState doorState;
 
     // ── 内部状態 ──────────────────────────────
     private Rigidbody rb;
@@ -58,12 +65,32 @@ public class Door : MonoBehaviour
         dir = (doorType == DoorType.RightDoor) ? 1 : -1;
         Debug.Log($"dir: {dir}");
         float sizeX = transform.localScale.x; // ドアの幅
+        SetParamaeters();
+        Debug.Log($"Mup: {p.MuP}, m:{p.m}, g:{p.g}, Xa:{p.Xa}, Xb:{p.Xb}, c:{p.c}");
+        maxDoorPositionX = sizeX / 2f + sizeX;
+        minDoorPositionX = sizeX / 2f;
+
+        Close(); // 初期状態は閉じるモードに設定
+        rb.linearVelocity = new Vector3(-p.Vl * dir, 0, 0); //ドアが途中から始まる場合があるため、初期速度をVlに設定
+        //Open(); // 初期状態は開くモードに設定
+    }
+
+    void OnValidate()
+    {
+        // ドアの種類に応じて開ける方向を設定
+        dir = (doorType == DoorType.RightDoor) ? 1 : -1;
+        SetParamaeters();
+    }
+
+    private void SetParamaeters()
+    {
+        float sizeX = transform.localScale.x; // ドアの幅
 
         // 物理パラメータの初期化
         p = new PhysicsParams
         {
-            Vd = targetAccelationVelocity,
-            Td = accelerationTime,
+            Vh = targetAccelationVelocity,
+            Th = accelerationTime,
             Vl = targetDecelerationVelocity,
             Tl = decelerationTime,
             Mu = pm.staticFriction, // 静摩擦係数
@@ -75,22 +102,36 @@ public class Door : MonoBehaviour
             Xa = damperDistance + sizeX/2f,
             c = damperCoefficient
         };
-
-        maxDoorPositionX = sizeX / 2f + sizeX;
-        minDoorPositionX = sizeX / 2f;
-
-        Close(); // 初期状態は閉じるモードに設定
-        //Open(); // 初期状態は開くモードに設定
+        
     }
 
     public void Open()
     {
-        currentMode = "open";
+        if(doorState == DoorState.Opened)
+        {
+            Debug.Log("ドアはすでに開いています。");
+        }
+        else
+        {
+            Debug.Log("ドアを開きます。");
+            currentMode = "open";
+            doorState = DoorState.Moving;
+        }
+        
     }
 
     public void Close()
     {
-        currentMode = "close";
+        if(doorState == DoorState.Closed)
+        {
+            Debug.Log("ドアはすでに閉じています。");
+        }
+        else
+        {
+            Debug.Log("ドアを閉じます。");
+            currentMode = "close";
+            doorState = DoorState.Moving;
+        }
     }
 
     /// <summary>
@@ -115,34 +156,65 @@ public class Door : MonoBehaviour
 
         
         // A. 目標速度、加速度の設定
+        float f;
+        // 1. 開閉の開始時
+        if((p.Xb <= _x && mode == "close")
+        || (_x <= p.Xa && mode == "open"))
+        {
+            targetV = p.Vh;//加速済み速度
+            if(_v < p.Vh - Epsilon)
+            {
+                // Vhまで加速させるための加速度 (正の値)
+                targetA = (p.Vl - 0) / p.Th;
+                //Debug.Log($"1:加速開始: targetA: {targetA:F3}, targetV: {targetV:F3}");
+            }
+            f = p.c * p.Vl + p.MuP * N; // 減速中の力 (目標速度での力)
+            if(p.c==0)
+                f= targetA * p.m + p.MuP * N;
 
-        // 1. 開閉の終了前
-        if ((_x < p.Xa && mode == "close")
-         || (p.Xb < _x && mode == "open"))
+        }
+        // 2. 開閉の終了前
+        else if ((_x <= p.Xa && mode == "close")
+         || (p.Xb <= _x && mode == "open"))
         {
             targetV = p.Vl;//減速済み速度
             if(_v > p.Vl + Epsilon)
             {
                 // Vlまで減速させるための加速度 (負の値)
-                targetA = (p.Vl - p.Vd) / p.Tl;
+                targetA = (targetV - p.Vh) / p.Tl;
             }
+            f = p.c * p.Vl + p.MuP * N; // 減速中の力 (目標速度での力)
+            if(p.c==0)
+                f= targetA * p.m + p.MuP * N;
         }
-        // 2. 開閉の開始時
-        else if((p.Xa < _x && mode == "close")
-             || (_x < p.Xb && mode == "open"))
+        else
         {
-            targetV = p.Vd;//加速済み速度
-            if(_v < p.Vd - Epsilon)
+            if(_v < p.Vh - Epsilon)
             {
-                // Vdまで加速させるための加速度 (正の値)
-                targetA = (p.Vd - 0) / p.Td;
+                float va=p.Vl;//ダンパ区間を過ぎたときの速度
+                if(_v < Epsilon) va = 0; // 途中で停止している場合は速度0からVhまで加速する
+                // Vhまで加速させるための加速度 (正の値)
+                f = p.m * (p.Vh - va) / p.Th + p.MuP * N; // 加速中の力
+               // Debug.Log($"加速中: targetA: {targetA:F3}, vd: {p.Vh - va:F3}, f: {f:F5}");
+            }
+            else
+            {
+                f = p.MuP * N; // 目標速度に達している場合は摩擦力のみ
             }
         }
+
+        //停止している場合は静摩擦力を考慮して動きだす
+        if(_v < Epsilon)
+        {
+            f = p.c * p.Vl + p.Mu * N + 0.1f; // 停止している場合は静摩擦係数を使用
+        }
+        
+        return mode == "open" ? f : -f; // 右の扉を想定して開くときは正、閉じるときは負の力を返す
 
         // B. 力fの計算
 
         // 1. 走行中の計算 (慣性力 + 摩擦力)
-        float f = p.m * targetA + p.MuP * N;
+        f = p.m * targetA + p.MuP * N;
 
         // 2. ダンパの計算: 
         if(_v < Epsilon && targetA > 0)
@@ -184,6 +256,7 @@ public class Door : MonoBehaviour
             // 停止エリアに衝突した場合、停止とみなす
             Debug.Log("ドア同士が衝突しました。ドアを停止させます。");
             currentMode = "";
+            doorState = DoorState.Closed; // ドアの状態を閉じるに設定
             //rb.linearVelocity = Vector3.zero; // ドアを完全に停止させる
             //rb.constraints = RigidbodyConstraints.FreezeAll;
         }
@@ -195,6 +268,7 @@ public class Door : MonoBehaviour
         {
             // 停止エリアに入った場合、停止とみなす
             currentMode = "";
+            doorState = DoorState.Opened; // ドアの状態を閉じるに設定
             rb.linearVelocity = Vector3.zero; // ドアを完全に停止させる
         }
     }
@@ -229,7 +303,7 @@ public class Door : MonoBehaviour
             rb.AddForce(force, ForceMode.Force);
             //CheckDoorStop(px, vx, p);
             if(doorType == DoorType.RightDoor)
-            Debug.Log($"v: {vx:F2}, F: {F:F2}, f: {f:F2}, force: {force.x:F2}");
+            Debug.Log($"v: {vx:F3}, F: {F:F5}, f: {f:F4}, force: {force.x:F3}");
         }
     }
 }
