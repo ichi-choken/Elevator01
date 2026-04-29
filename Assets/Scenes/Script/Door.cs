@@ -54,19 +54,21 @@ public class Door : MonoBehaviour
     private DoorState doorState;
 
     // ── 内部状態 ──────────────────────────────
+    private DoorManager doorManager; // ドアの管理スクリプトへの参照
     private Rigidbody rb;
     private PhysicsMaterial pm;
     void Start()
     {
-        rb = GetComponent<Rigidbody>();
-        pm = GetComponent<Collider>().material;
+        //rb = GetComponent<Rigidbody>();
+        //pm = GetComponent<Collider>().material;
+        doorManager = transform.parent.gameObject.GetComponent<DoorManager>(); // 親オブジェクトからDoorManagerを取得
 
         // ドアの種類に応じて開ける方向を設定
         dir = (doorType == DoorType.RightDoor) ? 1 : -1;
-        Debug.Log($"dir: {dir}");
+        //Debug.Log($"dir: {dir}");
         float sizeX = transform.localScale.x; // ドアの幅
         SetParamaeters();
-        Debug.Log($"Mup: {p.MuP}, m:{p.m}, g:{p.g}, Xa:{p.Xa}, Xb:{p.Xb}, c:{p.c}");
+        //Debug.Log($"Mup: {p.MuP}, m:{p.m}, g:{p.g}, Xa:{p.Xa}, Xb:{p.Xb}, c:{p.c}");
         maxDoorPositionX = sizeX / 2f + sizeX;
         minDoorPositionX = sizeX / 2f;
 
@@ -85,6 +87,8 @@ public class Door : MonoBehaviour
     private void SetParamaeters()
     {
         float sizeX = transform.localScale.x; // ドアの幅
+        if (rb == null) rb = GetComponent<Rigidbody>();
+        if (pm == null) pm = GetComponent<Collider>().material;
 
         // 物理パラメータの初期化
         p = new PhysicsParams
@@ -107,14 +111,15 @@ public class Door : MonoBehaviour
 
     public void Open()
     {
-        if(doorState == DoorState.Opened)
+        if(doorState != DoorState.Closed)
         {
-            Debug.Log("ドアはすでに開いています。");
+            Debug.Log("ドアはすでに開いています。"+gameObject.name);
         }
         else
         {
-            Debug.Log("ドアを開きます。");
+            Debug.Log("ドアを開きます。"+gameObject.name);
             currentMode = "open";
+            doorManager.SetDoorState("moving"); // DoorManagerにドアの状態を通知
             doorState = DoorState.Moving;
         }
         
@@ -122,14 +127,15 @@ public class Door : MonoBehaviour
 
     public void Close()
     {
-        if(doorState == DoorState.Closed)
+        if(doorState != DoorState.Opened)
         {
-            Debug.Log("ドアはすでに閉じています。");
+            Debug.Log("ドアはすでに閉じています。"+gameObject.name);
         }
         else
         {
-            Debug.Log("ドアを閉じます。");
+            Debug.Log("ドアを閉じます。"+gameObject.name);
             currentMode = "close";
+            doorManager.SetDoorState("moving"); // DoorManagerにドアの状態を通知
             doorState = DoorState.Moving;
         }
     }
@@ -259,6 +265,7 @@ public class Door : MonoBehaviour
             doorState = DoorState.Closed; // ドアの状態を閉じるに設定
             //rb.linearVelocity = Vector3.zero; // ドアを完全に停止させる
             //rb.constraints = RigidbodyConstraints.FreezeAll;
+            doorManager.SetDoorState("closed"); // DoorManagerにドアの状態を通知
         }
     }
 
@@ -266,9 +273,11 @@ public class Door : MonoBehaviour
     {
         if (other.CompareTag("StopSensor"))
         {
+            Debug.Log("停止センサーに入ったため、ドアを停止させます。");
             // 停止エリアに入った場合、停止とみなす
             currentMode = "";
             doorState = DoorState.Opened; // ドアの状態を閉じるに設定
+            doorManager.SetDoorState("opened"); // DoorManagerにドアの状態を通知
             rb.linearVelocity = Vector3.zero; // ドアを完全に停止させる
         }
     }
@@ -302,8 +311,8 @@ public class Door : MonoBehaviour
             Vector3 force = new Vector3(dir * (F - f), 0, 0);//右の扉が開くときをベースに考える
             rb.AddForce(force, ForceMode.Force);
             //CheckDoorStop(px, vx, p);
-            if(doorType == DoorType.RightDoor)
-            Debug.Log($"v: {vx:F3}, F: {F:F5}, f: {f:F4}, force: {force.x:F3}");
+            //if(doorType == DoorType.RightDoor)
+            //Debug.Log($"v: {vx:F3}, F: {F:F5}, f: {f:F4}, force: {force.x:F3}");
         }
     }
 }
